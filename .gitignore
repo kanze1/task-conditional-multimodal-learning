@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local secrets and machine-specific settings
+.env
+.env.*
+!.env.example
+
+# Runtime caches and large local artifacts
+checkpoints/
+wandb/
+tensorboard/
+*.ckpt
+*.pt
+*.pth
