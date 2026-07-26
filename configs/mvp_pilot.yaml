@@ -1,0 +1,81 @@
+project:
+  name: task_conditional_multimodal_learning
+  output_root: artifacts
+  evidence_level: pilot
+  protocol_status: draft
+  protocol_path: docs/protocol/go_no_go_冻结实验协议_20260726.md
+  gpu_hour_budget: 48
+
+data:
+  dataset_name: controlled_scene_graph_mvp
+  schema_version: tcmi_scene_graph_v1
+  generation_seed: 20260726
+  image_size: 32
+  max_seq_length: 14
+  shard_size: 1000
+  splits:
+    train: 50000
+    validation: 5000
+    test: 5000
+  conditions:
+    - redundant
+    - complementary
+    - irrelevant
+    - conflict
+  heldout_modulus: 5
+  preview_samples_per_split: 32
+
+model:
+  embedding_dim: 128
+  image_width: 128
+  text_width: 128
+  transformer_layers: 4
+  attention_heads: 4
+  dropout: 0.1
+  temperature: 0.07
+
+training:
+  batch_size: 256
+  epochs: 20
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  num_workers: 4
+  checkpoint_every_epochs: 5
+  image_noise_std: 0.03
+  text_dropout_probability: 0.15
+  device: auto
+  deterministic_algorithms: true
+
+probe:
+  batch_size: 512
+  epochs: 100
+  learning_rate: 0.01
+  weight_decay: 0.0001
+  bootstrap_samples: 2000
+  confidence_level: 0.95
+  failure_examples: 100
+
+matrix:
+  architectures:
+    - tiny_vit
+    - tiny_cnn
+  train_modes:
+    - image_only
+    - image_only_matched
+    - text_only
+    - multimodal_aligned
+    - multimodal_shuffled
+    - multimodal_conflict
+  conditions:
+    - redundant
+    - complementary
+    - irrelevant
+    - conflict
+  seeds:
+    - 2601
+    - 2602
+    - 2603
+  representation_scopes:
+    - image
+    - text
+    - fused

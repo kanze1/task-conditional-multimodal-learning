@@ -23,6 +23,8 @@ Thumbs.db
 !.env.example
 
 # Runtime caches and large local artifacts
+artifacts/*
+!artifacts/README.md
 checkpoints/
 wandb/
 tensorboard/
