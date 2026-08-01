@@ -285,6 +285,7 @@ def _run_probes_impl(
 
     payload = {
         "schema_version": "tcmi_probe_metrics_v1",
+        "evidence_level": probe_provenance["evidence_level"],
         "run_identity": identity,
         "representation_scope": representation_scope,
         "checkpoint": checkpoint_provenance(checkpoint_path),

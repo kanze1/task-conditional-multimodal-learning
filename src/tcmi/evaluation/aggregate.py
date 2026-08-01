@@ -30,15 +30,55 @@ def aggregate_results(config: dict[str, Any]) -> Path:
     result_files = sorted(
         output_root(config).glob("runs/*/probes/*/probe_metrics.json")
     )
-    records: list[dict[str, Any]] = []
-    for path in result_files:
-        payload = read_json(path)
-        for metric in payload["metrics"]:
-            if metric["evidence_level"] != evidence_level:
-                continue
-            records.append({**metric, "source_path": str(path)})
+    records = _load_probe_records(config, result_files)
     if not records:
         raise AggregationError(f"没有可聚合的 {evidence_level} probe 结果")
+    return _write_aggregate_artifacts(config, result_files, records)
+
+
+def _load_probe_records(
+    config: dict[str, Any],
+    result_files: list[Path],
+) -> list[dict[str, Any]]:
+    evidence_level = config["project"]["evidence_level"]
+    records: list[dict[str, Any]] = []
+    for path in result_files:
+        manifest_path = path.with_name("probe_run_manifest.json")
+        if not manifest_path.exists():
+            raise AggregationError(f"probe 结果缺少运行 manifest: {path}")
+        manifest = read_json(manifest_path)
+        if manifest.get("status") != "completed":
+            raise AggregationError(f"probe 运行未完成，拒绝聚合: {manifest_path}")
+        if manifest.get("metrics_path") != path.name:
+            raise AggregationError(f"probe manifest 的 metrics_path 不匹配: {path}")
+
+        payload = read_json(path)
+        payload_evidence_level = payload.get("evidence_level")
+        manifest_evidence_level = manifest.get("evidence_level")
+        if (
+            payload_evidence_level is not None
+            and payload_evidence_level != manifest_evidence_level
+        ):
+            raise AggregationError(f"probe metrics 与 manifest 的证据等级不一致: {path}")
+        if manifest_evidence_level != evidence_level:
+            continue
+        for metric in payload["metrics"]:
+            records.append(
+                {
+                    **metric,
+                    "evidence_level": manifest_evidence_level,
+                    "source_path": str(path),
+                }
+            )
+    return records
+
+
+def _write_aggregate_artifacts(
+    config: dict[str, Any],
+    result_files: list[Path],
+    records: list[dict[str, Any]],
+) -> Path:
+    evidence_level = config["project"]["evidence_level"]
 
     output_dir = output_root(config) / "aggregates" / evidence_level
     if output_dir.exists():

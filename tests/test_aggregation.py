@@ -4,7 +4,9 @@ import numpy as np
 
 from tcmi.config import output_root
 from tcmi.evaluation.aggregate import (
+    AggregationError,
     _audit_budgets,
+    _load_probe_records,
     bootstrap_mean_ci,
     matrix_completeness,
 )
@@ -80,3 +82,79 @@ def test_budget_audit_reads_evidence_level_from_run_manifest(
     assert audit["matched_pair_count"] == 1
     assert audit["fairness_checks_passed"] is True
     assert audit["fairness_failures"] == []
+
+
+def test_load_probe_records_uses_completed_manifest_evidence_level(
+    tiny_temp_config: dict,
+) -> None:
+    probe_dir = (
+        output_root(tiny_temp_config)
+        / "runs"
+        / "sample-run"
+        / "probes"
+        / "image"
+    )
+    metrics_path = probe_dir / "probe_metrics.json"
+    write_json(
+        probe_dir / "probe_run_manifest.json",
+        {
+            "status": "completed",
+            "evidence_level": "smoke",
+            "metrics_path": metrics_path.name,
+        },
+    )
+    write_json(
+        metrics_path,
+        {
+            "schema_version": "tcmi_probe_metrics_v1",
+            "metrics": [
+                {
+                    "architecture": "tiny_cnn",
+                    "train_mode": "image_only",
+                    "condition": "redundant",
+                    "seed": 2601,
+                    "representation_scope": "image",
+                    "task": "entity",
+                    "metric": "clean_accuracy",
+                    "accuracy": 0.5,
+                }
+            ],
+        },
+    )
+
+    records = _load_probe_records(tiny_temp_config, [metrics_path])
+
+    assert records[0]["evidence_level"] == "smoke"
+    assert records[0]["source_path"] == str(metrics_path)
+
+
+def test_load_probe_records_rejects_payload_manifest_evidence_mismatch(
+    tiny_temp_config: dict,
+) -> None:
+    probe_dir = (
+        output_root(tiny_temp_config)
+        / "runs"
+        / "sample-run"
+        / "probes"
+        / "image"
+    )
+    metrics_path = probe_dir / "probe_metrics.json"
+    write_json(
+        probe_dir / "probe_run_manifest.json",
+        {
+            "status": "completed",
+            "evidence_level": "smoke",
+            "metrics_path": metrics_path.name,
+        },
+    )
+    write_json(
+        metrics_path,
+        {
+            "schema_version": "tcmi_probe_metrics_v1",
+            "evidence_level": "formal",
+            "metrics": [],
+        },
+    )
+
+    with np.testing.assert_raises(AggregationError):
+        _load_probe_records(tiny_temp_config, [metrics_path])
