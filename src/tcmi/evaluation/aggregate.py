@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from tcmi.config import output_root
+from tcmi.constants import PRIMARY_SCOPE_BY_TASK
 from tcmi.io import read_json, write_json
 
 GROUP_FIELDS = (
@@ -341,10 +342,7 @@ def _plot_interactions(path: Path, rows: list[dict[str, Any]]) -> None:
             )
         )
         and row["metric"] == "clean_accuracy"
-        and (
-            (row["task"] == "joint_graph" and row["representation_scope"] == "fused")
-            or (row["task"] != "joint_graph" and row["representation_scope"] == "image")
-        )
+        and row["representation_scope"] == PRIMARY_SCOPE_BY_TASK[row["task"]]
     ]
     if not selected:
         raise AggregationError("没有 aligned clean delta，无法生成主图")

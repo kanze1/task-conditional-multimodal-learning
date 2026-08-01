@@ -26,6 +26,7 @@ Thumbs.db
 # Runtime caches and large local artifacts
 artifacts/*
 !artifacts/README.md
+artifacts_v2/*
 checkpoints/
 wandb/
 tensorboard/

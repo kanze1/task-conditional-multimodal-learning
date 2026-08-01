@@ -26,5 +26,14 @@ TASK_CLASS_COUNTS = {
     "entity": 16,
     "predicate": 4,
     "direction": 2,
-    "joint_graph": 2,
+    "joint_graph": 4,
 }
+
+PRIMARY_SCOPE_BY_TASK = {
+    "entity": "fused",
+    "predicate": "image",
+    "direction": "image",
+    "joint_graph": "fused",
+}
+
+COMPLEMENTARY_PRIMARY_TASKS = ("entity", "joint_graph")

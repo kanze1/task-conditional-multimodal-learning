@@ -67,8 +67,10 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("MVP 数据必须完整包含四种预注册信息条件")
     if data.get("image_size", 0) < 16:
         raise ConfigError("image_size 必须至少为 16")
+    if data.get("schema_version") != "tcmi_scene_graph_v2":
+        raise ConfigError("MVP 数据 schema_version 必须为 tcmi_scene_graph_v2")
     if data.get("max_seq_length") != 14:
-        raise ConfigError("tcmi_scene_graph_v1 的 max_seq_length 必须为 14")
+        raise ConfigError("tcmi_scene_graph_v2 的 max_seq_length 必须为 14")
     if any(int(size) <= 0 for size in data.get("splits", {}).values()):
         raise ConfigError("所有 split 大小必须为正整数")
     if set(data.get("splits", {})) != set(SPLITS):

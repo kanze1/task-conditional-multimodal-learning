@@ -34,6 +34,13 @@ def test_all_four_information_conditions_are_required(smoke_config: dict) -> Non
         validate_config(config)
 
 
+def test_v1_data_schema_is_rejected(smoke_config: dict) -> None:
+    config = deepcopy(smoke_config)
+    config["data"]["schema_version"] = "tcmi_scene_graph_v1"
+    with pytest.raises(ConfigError, match="tcmi_scene_graph_v2"):
+        validate_config(config)
+
+
 def test_matched_control_requires_even_batch(smoke_config: dict) -> None:
     config = deepcopy(smoke_config)
     config["training"]["batch_size"] = 31

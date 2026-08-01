@@ -1,6 +1,6 @@
 project:
   name: task_conditional_multimodal_learning
-  output_root: artifacts
+  output_root: artifacts_v2
   evidence_level: pilot
   protocol_status: draft
   protocol_path: docs/protocol/go_no_go_冻结实验协议_20260726.md
@@ -8,7 +8,7 @@ project:
 
 data:
   dataset_name: controlled_scene_graph_mvp
-  schema_version: tcmi_scene_graph_v1
+  schema_version: tcmi_scene_graph_v2
   generation_seed: 20260726
   image_size: 32
   max_seq_length: 14

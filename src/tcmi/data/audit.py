@@ -74,7 +74,7 @@ def audit_dataset(config: dict[str, Any]) -> Path:
     failures.extend(oracle_report["failures"])
 
     report = {
-        "schema_version": "tcmi_data_audit_v1",
+        "schema_version": "tcmi_data_audit_v2",
         "created_at": datetime.now(UTC).isoformat(),
         "dataset_manifest_sha256": sha256_file(root_manifest_path),
         "status": "passed" if not failures else "failed",
@@ -92,6 +92,8 @@ def audit_dataset(config: dict[str, Any]) -> Path:
             "fixed_sequence_length": True,
             "unseen_combination_partition": True,
             "oracle_identifiability": True,
+            "linear_probe_identifiability": True,
+            "complementary_alignment_anchor": True,
         },
     }
     report_path = root / "audit_report.json"

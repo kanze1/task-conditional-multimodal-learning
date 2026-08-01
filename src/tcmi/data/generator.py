@@ -80,6 +80,11 @@ def is_unseen_combination(graph: SceneGraph, heldout_modulus: int) -> bool:
     return (graph.entity_label * 3 + graph.predicate) % heldout_modulus == 0
 
 
+def complementary_object_shape(graph: SceneGraph) -> int:
+    """Return an object-shape nuisance independent of the true object label."""
+    return graph.scene_nonce % 4
+
+
 def _rng_for(seed: int, split: str, index: int, attempt: int = 0) -> np.random.Generator:
     split_id = SPLITS.index(split)
     seed_sequence = np.random.SeedSequence([seed, split_id, index, attempt])
@@ -97,9 +102,14 @@ def render_image(graph: SceneGraph, condition: str, image_size: int) -> np.ndarr
         (left_x, right_x) if graph.direction == 0 else (right_x, left_x)
     )
 
+    rendered_object_shape = (
+        complementary_object_shape(graph)
+        if condition == "complementary"
+        else graph.object_shape
+    )
     _draw_relation(canvas, subject_x, object_x, center_y, graph.predicate)
     _draw_shape(canvas, subject_x, center_y, graph.subject_shape)
-    _draw_shape(canvas, object_x, center_y, graph.object_shape)
+    _draw_shape(canvas, object_x, center_y, rendered_object_shape)
     _draw_key_patch(canvas, 2, image_size - 5, graph.visual_key)
 
     # complementary 中 text_key 只存在于文本；其余条件让 image-only 保持完整可辨。
@@ -184,7 +194,13 @@ def text_token_ids(
     if condition == "redundant":
         values = true_values
     elif condition == "complementary":
-        values = {**nuisance_values, "text_key": true_values["text_key"]}
+        values = {
+            **nuisance_values,
+            "object": true_values["object"],
+            "predicate": true_values["predicate"],
+            "direction": true_values["direction"],
+            "text_key": true_values["text_key"],
+        }
     elif condition == "irrelevant":
         values = nuisance_values
     elif condition == "conflict":
@@ -415,16 +431,29 @@ def projection_contract() -> dict[str, Any]:
             },
         },
         "complementary": {
+            "alignment_anchor": ["predicate", "direction"],
+            "factor_visibility": {
+                "entity": {
+                    "image": ["subject_shape"],
+                    "text": ["object_shape"],
+                    "joint": ["subject_shape", "object_shape"],
+                },
+                "joint_graph": {
+                    "image": ["visual_key"],
+                    "text": ["text_key"],
+                    "joint": ["visual_key", "text_key"],
+                },
+            },
             "image": {
-                "entity": True,
+                "entity": False,
                 "predicate": True,
                 "direction": True,
                 "joint_graph": False,
             },
             "text": {
                 "entity": False,
-                "predicate": False,
-                "direction": False,
+                "predicate": True,
+                "direction": True,
                 "joint_graph": False,
             },
             "joint": {

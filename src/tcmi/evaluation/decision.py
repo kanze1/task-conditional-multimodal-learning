@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from tcmi.config import output_root
+from tcmi.constants import COMPLEMENTARY_PRIMARY_TASKS, PRIMARY_SCOPE_BY_TASK
 from tcmi.io import read_json, write_json
 
 
@@ -80,10 +81,8 @@ def _evaluate_formal_thresholds(
         row
         for row in aligned_clean
         if row["condition"] == "complementary"
-        and (
-            (row["task"] == "joint_graph" and row["representation_scope"] == "fused")
-            or (row["task"] != "joint_graph" and row["representation_scope"] == "image")
-        )
+        and row["task"] in COMPLEMENTARY_PRIMARY_TASKS
+        and row["representation_scope"] == PRIMARY_SCOPE_BY_TASK[row["task"]]
     ]
     task_passes: dict[str, bool] = {}
     for row in complementary:

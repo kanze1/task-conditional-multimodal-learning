@@ -24,7 +24,7 @@ class SceneGraph:
 
     @property
     def joint_graph_label(self) -> int:
-        return self.visual_key ^ self.text_key
+        return self.visual_key * 2 + self.text_key
 
     @property
     def labels(self) -> dict[str, int]:
