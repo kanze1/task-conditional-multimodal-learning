@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 
+import tcmi.evidence as evidence_module
+from tcmi.config import public_config, stable_hash
+from tcmi.data.audit import audit_dataset
+from tcmi.data.generator import generate_dataset
+from tcmi.io import read_json
 from tcmi.models import build_model
+from tcmi.training.checkpoint import load_checkpoint
 from tcmi.training.losses import symmetric_contrastive_loss
 from tcmi.training.trainer import (
     TrainingError,
     _configure_trainable_parameters,
     _mode_loss,
     _validate_identity,
+    train_run,
 )
 
 
@@ -68,3 +77,45 @@ def test_conflict_mode_requires_conflict_condition() -> None:
 def test_conflict_condition_uses_single_canonical_multimodal_mode() -> None:
     with pytest.raises(TrainingError, match="避免重复"):
         _validate_identity("tiny_cnn", "multimodal_aligned", "conflict")
+
+
+def test_final_checkpoint_budget_matches_final_budget(
+    tiny_temp_config: dict,
+    monkeypatch,
+) -> None:
+    config = tiny_temp_config
+    config["training"]["device"] = "cpu"
+    config["training"]["batch_size"] = 4
+    config["training"]["epochs"] = 1
+    config["_meta"]["config_hash"] = stable_hash(public_config(config))
+    project_root = Path(config["_meta"]["config_path"]).parent.parent
+    protocol_path = project_root / config["project"]["protocol_path"]
+    protocol_path.parent.mkdir(parents=True)
+    protocol_path.write_text("draft protocol\n", encoding="utf-8")
+    monkeypatch.setattr(
+        evidence_module,
+        "source_snapshot",
+        lambda root: {
+            "git_commit": "test-commit",
+            "dirty": False,
+            "dirty_paths": [],
+        },
+    )
+
+    generate_dataset(config)
+    audit_dataset(config)
+    run_dir = train_run(
+        config,
+        architecture="tiny_cnn",
+        train_mode="image_only",
+        condition="redundant",
+        seed=2601,
+    )
+    manifest = read_json(run_dir / "run_manifest.json")
+    budget = read_json(run_dir / "budget.json")
+    checkpoint = load_checkpoint(
+        run_dir / manifest["final_checkpoint"],
+        torch.device("cpu"),
+    )
+    assert checkpoint["budget"] == budget
+    assert budget["wall_clock_seconds"] > 0

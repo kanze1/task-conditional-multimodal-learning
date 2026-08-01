@@ -22,7 +22,7 @@ def test_checkpoint_carries_required_provenance(tmp_path) -> None:
             "condition": "redundant",
             "seed": 2601,
         },
-        budget={"optimizer_updates": 7},
+        budget={"optimizer_updates": 7, "gpu_time_seconds": 1.25},
     )
     payload = load_checkpoint(path, torch.device("cpu"))
     assert payload["schema_version"] == "tcmi_checkpoint_v1"
@@ -30,3 +30,4 @@ def test_checkpoint_carries_required_provenance(tmp_path) -> None:
     assert payload["dataset_manifest_hash"] == "dataset-hash"
     assert payload["run_identity"]["seed"] == 2601
     assert payload["budget"]["optimizer_updates"] == 7
+    assert payload["budget"]["gpu_time_seconds"] == 1.25

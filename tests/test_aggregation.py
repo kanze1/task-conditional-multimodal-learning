@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from tcmi.evaluation.aggregate import bootstrap_mean_ci, matrix_completeness
+from tcmi.config import output_root
+from tcmi.evaluation.aggregate import (
+    _audit_budgets,
+    bootstrap_mean_ci,
+    matrix_completeness,
+)
+from tcmi.io import write_json
 from tcmi.matrix import matrix_cells
 
 
@@ -32,3 +38,45 @@ def test_empty_matrix_is_incomplete(smoke_config: dict) -> None:
     completeness = matrix_completeness([], smoke_config)
     assert completeness["complete"] is False
     assert completeness["missing_cells"]
+
+
+def test_budget_audit_reads_evidence_level_from_run_manifest(
+    tiny_temp_config: dict,
+) -> None:
+    shared_budget = {
+        "samples": 16,
+        "optimizer_updates": 1,
+        "image_encodings": 16,
+        "text_sequences": 16,
+        "text_tokens": 224,
+        "wall_clock_seconds": 0.1,
+        "gpu_time_seconds": 0.05,
+    }
+    shared_parameters = {
+        "total_parameters": 100,
+        "trainable_parameters": 100,
+    }
+    for train_mode in ("image_only_matched", "multimodal_aligned"):
+        run_dir = output_root(tiny_temp_config) / "runs" / train_mode
+        run_dir.mkdir(parents=True)
+        write_json(
+            run_dir / "run_manifest.json",
+            {
+                "status": "completed",
+                "evidence_level": "smoke",
+                "identity": {
+                    "architecture": "tiny_cnn",
+                    "train_mode": train_mode,
+                    "condition": "redundant",
+                    "seed": 2601,
+                },
+            },
+        )
+        write_json(run_dir / "budget.json", shared_budget)
+        write_json(run_dir / "parameter_audit.json", shared_parameters)
+
+    audit = _audit_budgets(tiny_temp_config)
+    assert audit["completed_run_count"] == 2
+    assert audit["matched_pair_count"] == 1
+    assert audit["fairness_checks_passed"] is True
+    assert audit["fairness_failures"] == []

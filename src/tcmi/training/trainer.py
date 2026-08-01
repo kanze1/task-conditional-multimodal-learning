@@ -93,7 +93,7 @@ def train_run(
                 config,
                 previously_consumed_seconds + tracker.elapsed_wall_seconds(),
             )
-            if epoch % checkpoint_every == 0 or epoch == epochs:
+            if epoch % checkpoint_every == 0 and epoch != epochs:
                 save_checkpoint(
                     context.run_dir / "checkpoints" / f"epoch_{epoch:04d}.pt",
                     model=model,
@@ -106,6 +106,16 @@ def train_run(
                 )
         tracker.stop()
         budget = tracker.to_dict()
+        save_checkpoint(
+            context.run_dir / "checkpoints" / f"epoch_{epochs:04d}.pt",
+            model=model,
+            optimizer=optimizer,
+            epoch=epochs,
+            config_hash=config["_meta"]["config_hash"],
+            dataset_manifest_hash=manifest_hash,
+            run_identity=identity.__dict__,
+            budget=budget,
+        )
         write_json(context.run_dir / "budget.json", budget)
         context.update_status(
             "completed",

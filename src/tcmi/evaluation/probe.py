@@ -9,14 +9,17 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from tcmi.config import project_path, public_config, stable_hash
 from tcmi.constants import REPRESENTATION_SCOPES, TASK_CLASS_COUNTS, TASKS
+from tcmi.data.dataset import dataset_manifest_hash
 from tcmi.evaluation.features import (
     FeatureSet,
     checkpoint_provenance,
     extract_features,
     load_model_for_run,
 )
-from tcmi.io import read_json, write_json, write_jsonl
+from tcmi.evidence import source_snapshot, utc_now
+from tcmi.io import read_json, sha256_file, write_json, write_jsonl
 from tcmi.training.budget import BudgetTracker
 from tcmi.training.trainer import (
     _completed_budget_seconds,
@@ -27,6 +30,47 @@ from tcmi.training.trainer import (
 
 class ProbeError(RuntimeError):
     """Raised when frozen-probe evaluation is incomplete or inconsistent."""
+
+
+def _probe_provenance(
+    config: dict[str, Any],
+    directory: Path,
+    representation_scope: str,
+) -> dict[str, Any]:
+    training_manifest = read_json(directory / "run_manifest.json")
+    config_hash = stable_hash(public_config(config))
+    current_dataset_hash = dataset_manifest_hash(config)
+    if training_manifest["config_hash"] != config_hash:
+        raise ProbeError("当前配置与训练运行的 config_hash 不一致")
+    if training_manifest["dataset_manifest_hash"] != current_dataset_hash:
+        raise ProbeError("当前数据 manifest 与训练运行不一致")
+    if training_manifest["evidence_level"] != config["project"]["evidence_level"]:
+        raise ProbeError("probe 与训练运行的 evidence_level 不一致")
+
+    root = project_path(config)
+    source = source_snapshot(root)
+    if config["project"]["evidence_level"] == "formal" and source["dirty"]:
+        raise ProbeError("formal probe 要求 Git 工作树干净")
+    protocol_path = project_path(config, config["project"]["protocol_path"])
+    checkpoint_path = directory / training_manifest["final_checkpoint"]
+    return {
+        "schema_version": "tcmi_probe_run_v1",
+        "created_at": utc_now(),
+        "evidence_level": config["project"]["evidence_level"],
+        "representation_scope": representation_scope,
+        "config_hash": config_hash,
+        "dataset_manifest_hash": current_dataset_hash,
+        "protocol_path": config["project"]["protocol_path"],
+        "protocol_sha256": sha256_file(protocol_path),
+        "source": source,
+        "training_run": {
+            "identity": training_manifest["identity"],
+            "git_commit": training_manifest["source"]["git_commit"],
+            "config_hash": training_manifest["config_hash"],
+            "dataset_manifest_hash": training_manifest["dataset_manifest_hash"],
+        },
+        "checkpoint": checkpoint_provenance(checkpoint_path),
+    }
 
 
 def run_probes(
@@ -40,6 +84,7 @@ def run_probes(
     output_dir = directory / "probes" / representation_scope
     if output_dir.exists():
         raise ProbeError(f"probe 输出已存在，拒绝覆盖: {output_dir}")
+    provenance = _probe_provenance(config, directory, representation_scope)
     output_dir.mkdir(parents=True)
     device = resolve_device(str(config["training"]["device"]))
     previously_consumed_seconds = _completed_budget_seconds(config)
@@ -49,9 +94,8 @@ def run_probes(
     write_json(
         output_dir / "probe_run_manifest.json",
         {
-            "schema_version": "tcmi_probe_run_v1",
+            **provenance,
             "status": "running",
-            "representation_scope": representation_scope,
         },
     )
     try:
@@ -62,15 +106,16 @@ def run_probes(
             output_dir=output_dir,
             tracker=tracker,
             previously_consumed_seconds=previously_consumed_seconds,
+            probe_provenance=provenance,
         )
         tracker.stop()
         write_json(output_dir / "probe_budget.json", tracker.to_dict())
         write_json(
             output_dir / "probe_run_manifest.json",
             {
-                "schema_version": "tcmi_probe_run_v1",
+                **provenance,
                 "status": "completed",
-                "representation_scope": representation_scope,
+                "updated_at": utc_now(),
                 "metrics_path": metrics_path.name,
                 "budget_path": "probe_budget.json",
             },
@@ -86,9 +131,9 @@ def run_probes(
         write_json(
             output_dir / "probe_run_manifest.json",
             {
-                "schema_version": "tcmi_probe_run_v1",
+                **provenance,
                 "status": "failed",
-                "representation_scope": representation_scope,
+                "updated_at": utc_now(),
                 "failure_type": type(error).__name__,
                 "message": str(error),
                 "traceback": traceback.format_exc(),
@@ -107,6 +152,7 @@ def _run_probes_impl(
     output_dir: Path,
     tracker: BudgetTracker,
     previously_consumed_seconds: float,
+    probe_provenance: dict[str, Any],
 ) -> Path:
     model, device, run_manifest, checkpoint_path = load_model_for_run(config, directory)
     identity = run_manifest["identity"]
@@ -242,6 +288,10 @@ def _run_probes_impl(
         "run_identity": identity,
         "representation_scope": representation_scope,
         "checkpoint": checkpoint_provenance(checkpoint_path),
+        "config_hash": probe_provenance["config_hash"],
+        "dataset_manifest_hash": probe_provenance["dataset_manifest_hash"],
+        "protocol_sha256": probe_provenance["protocol_sha256"],
+        "source": probe_provenance["source"],
         "probe_config": config["probe"],
         "metrics": metrics,
     }

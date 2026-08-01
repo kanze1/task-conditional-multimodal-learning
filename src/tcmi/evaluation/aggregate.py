@@ -361,7 +361,7 @@ def _audit_budgets(config: dict[str, Any]) -> dict[str, Any]:
     run_rows = []
     for manifest_path in sorted(output_root(config).glob("runs/*/run_manifest.json")):
         manifest = read_json(manifest_path)
-        if manifest["identity"]["evidence_level"] != config["project"]["evidence_level"]:
+        if manifest["evidence_level"] != config["project"]["evidence_level"]:
             continue
         budget_path = manifest_path.parent / "budget.json"
         parameter_path = manifest_path.parent / "parameter_audit.json"

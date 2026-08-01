@@ -59,7 +59,7 @@ class RunContext:
         self.run_dir = output_root(config) / "runs" / identity.slug
 
         resolved_config = public_config(config)
-        source = _source_snapshot(project_path(config))
+        source = source_snapshot(project_path(config))
         if identity.evidence_level == "formal" and source["dirty"]:
             raise EvidenceError("formal 运行要求 Git 工作树干净")
         protocol_path = project_path(config, config["project"]["protocol_path"])
@@ -111,7 +111,7 @@ class RunContext:
         write_json(manifest_path, manifest)
 
 
-def _source_snapshot(project_root: Path) -> dict[str, Any]:
+def source_snapshot(project_root: Path) -> dict[str, Any]:
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=project_root,
