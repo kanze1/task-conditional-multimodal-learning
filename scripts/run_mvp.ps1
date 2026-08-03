@@ -5,7 +5,7 @@ param(
     [string]$Profile = 'smoke',
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet('data', 'train', 'probe', 'aggregate', 'all')]
+    [ValidateSet('data', 'train', 'probe', 'aggregate', 'run', 'all')]
     [string]$Stage = 'all'
 )
 
@@ -36,8 +36,19 @@ function Invoke-ProjectPython {
         [string[]]$CommandArguments
     )
 
-    & $python @CommandArguments
-    $exit_code = $LASTEXITCODE
+    # Python warnings arrive on stderr; with a redirected error stream and
+    # ErrorActionPreference=Stop, PowerShell 5.1 would turn the first stderr
+    # line into a terminating error. Success/failure is gated on the exit
+    # code alone, so native stderr must stay non-terminating here.
+    $previous_preference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $python @CommandArguments
+        $exit_code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous_preference
+    }
     if ($exit_code -ne 0) {
         $rendered_command = $CommandArguments -join ' '
         throw "Python command failed with exit code ${exit_code}: python $rendered_command"
@@ -50,17 +61,17 @@ try {
         Invoke-ProjectPython -CommandArguments @('-m', 'tcmi', 'generate', '--config', $config)
         Invoke-ProjectPython -CommandArguments @('-m', 'tcmi', 'audit', '--config', $config)
     }
-    if ($Stage -in @('train', 'all')) {
+    if ($Stage -in @('train', 'run', 'all')) {
         Invoke-ProjectPython -CommandArguments @(
             '-m', 'tcmi', 'matrix', '--config', $config, '--execute', '--stage', 'train'
         )
     }
-    if ($Stage -in @('probe', 'all')) {
+    if ($Stage -in @('probe', 'run', 'all')) {
         Invoke-ProjectPython -CommandArguments @(
             '-m', 'tcmi', 'matrix', '--config', $config, '--execute', '--stage', 'probe'
         )
     }
-    if ($Stage -in @('aggregate', 'all')) {
+    if ($Stage -in @('aggregate', 'run', 'all')) {
         Invoke-ProjectPython -CommandArguments @('-m', 'tcmi', 'aggregate', '--config', $config)
         Invoke-ProjectPython -CommandArguments @('-m', 'tcmi', 'decide', '--config', $config)
         Invoke-ProjectPython -CommandArguments @('-m', 'tcmi', 'status', '--config', $config)
