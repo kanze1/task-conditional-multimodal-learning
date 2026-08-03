@@ -77,7 +77,12 @@ def sample_graph(
 
 
 def is_unseen_combination(graph: SceneGraph, heldout_modulus: int) -> bool:
-    return (graph.entity_label * 3 + graph.predicate) % heldout_modulus == 0
+    # 均衡排除：每个 (subject, object) 恰好排除 1 个 predicate，且每个
+    # (subject, predicate) 恰好排除 1 个 object，保证 entity 边缘与
+    # 单模态条件分布在保留组合上严格均匀（heldout_modulus 必须为 4）。
+    return (
+        graph.subject_shape + graph.object_shape + graph.predicate
+    ) % heldout_modulus == 0
 
 
 def complementary_object_shape(graph: SceneGraph) -> int:

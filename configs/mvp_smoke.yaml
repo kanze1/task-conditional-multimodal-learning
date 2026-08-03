@@ -22,7 +22,7 @@ data:
     - complementary
     - irrelevant
     - conflict
-  heldout_modulus: 5
+  heldout_modulus: 4
   preview_samples_per_split: 8
 
 model:

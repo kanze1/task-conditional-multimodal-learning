@@ -6,6 +6,7 @@ from tcmi.constants import PRIMARY_SCOPE_BY_TASK, TASK_CLASS_COUNTS
 from tcmi.data.generator import (
     complementary_object_shape,
     generate_dataset,
+    is_unseen_combination,
     projection_contract,
     render_image,
     sample_graph,
@@ -16,13 +17,13 @@ from tcmi.data.vocab import VOCABULARY
 
 
 def test_scene_graph_sampling_is_deterministic() -> None:
-    first = sample_graph(20260726, "train", 7, heldout_modulus=5)
-    second = sample_graph(20260726, "train", 7, heldout_modulus=5)
+    first = sample_graph(20260726, "train", 7, heldout_modulus=4)
+    second = sample_graph(20260726, "train", 7, heldout_modulus=4)
     assert first == second
 
 
 def test_latent_graph_is_shared_but_projection_changes() -> None:
-    graph = sample_graph(20260726, "test", 3, heldout_modulus=5)
+    graph = sample_graph(20260726, "test", 3, heldout_modulus=4)
     redundant_image = render_image(graph, "redundant", 32)
     complementary_image = render_image(graph, "complementary", 32)
     assert redundant_image.shape == (3, 32, 32)
@@ -39,8 +40,8 @@ def test_latent_graph_is_shared_but_projection_changes() -> None:
 
 
 def test_conflict_is_aligned_in_train_and_flipped_in_test() -> None:
-    train_graph = sample_graph(20260726, "train", 4, heldout_modulus=5)
-    test_graph = sample_graph(20260726, "test", 4, heldout_modulus=5)
+    train_graph = sample_graph(20260726, "train", 4, heldout_modulus=4)
+    test_graph = sample_graph(20260726, "test", 4, heldout_modulus=4)
     assert text_token_ids(
         train_graph, "conflict", "train", 20260726, 4
     ) == text_token_ids(train_graph, "redundant", "train", 20260726, 4)
@@ -94,6 +95,46 @@ def test_complementary_entity_and_joint_graph_are_split_across_modalities() -> N
         "joint": ["subject_shape", "object_shape"],
     }
     assert contract["alignment_anchor"] == ["predicate", "direction"]
+
+
+def test_heldout_rule_is_marginally_balanced() -> None:
+    def make_graph(subject: int, obj: int, predicate: int) -> SceneGraph:
+        return SceneGraph(
+            subject_shape=subject,
+            object_shape=obj,
+            predicate=predicate,
+            direction=0,
+            visual_key=0,
+            text_key=0,
+            layout_jitter_x=0,
+            layout_jitter_y=0,
+            template_id=0,
+            scene_nonce=0,
+        )
+
+    for subject in range(4):
+        for obj in range(4):
+            excluded_predicates = [
+                predicate
+                for predicate in range(4)
+                if is_unseen_combination(make_graph(subject, obj, predicate), 4)
+            ]
+            assert len(excluded_predicates) == 1
+        for predicate in range(4):
+            excluded_objects = [
+                obj
+                for obj in range(4)
+                if is_unseen_combination(make_graph(subject, obj, predicate), 4)
+            ]
+            assert len(excluded_objects) == 1
+    for obj in range(4):
+        for predicate in range(4):
+            excluded_subjects = [
+                subject
+                for subject in range(4)
+                if is_unseen_combination(make_graph(subject, obj, predicate), 4)
+            ]
+            assert len(excluded_subjects) == 1
 
 
 def test_small_dataset_generation_produces_all_manifests(
