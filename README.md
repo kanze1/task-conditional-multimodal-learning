@@ -16,7 +16,9 @@
 - v1 暴露了 XOR 与拼接线性 probe 不相容、互补主任务数量不足两项的问题；
 - v2 将 entity 与 joint_graph 注册为两个 fused 互补主任务，并增加线性几何审计；
 - v1 结果保留在 `artifacts/`，v2 结果写入 `artifacts_v2/`，二者禁止混合；
-- 正式 v2 smoke 尚未运行，当前状态仍为“实验进行中”；
+- v2 数据生成与机械审计已通过；训练、probe、聚合和裁决尚未运行，当前状态仍为“实验进行中”；
+- v2 默认使用 GPU 驻留、fp32、TF32 关闭；pilot 训练吞吐已完成冻结前校准；
+- 可测量 usable-information / `I_V` 叙事已登记为定位草案，尚未进入当前运行证据；
 - 尚无 pilot 或 formal 实验结果；
 - 尚未提出新 loss 或新 fusion architecture；
 - GCL 不再作为中心贡献或默认主方法；
@@ -29,6 +31,7 @@
 - [旧研究缺陷与迁移边界](docs/defects/旧研究缺陷与归档说明_20260726.md)
 - [Go/No-Go 冻结实验协议草案](docs/protocol/go_no_go_冻结实验协议_20260726.md)
 - [项目身份决策](docs/decisions/0001_项目身份与仓库边界.md)
+- [新颖性叙事升级](docs/positioning/新颖性叙事升级_20260803.md)
 - [MVP 实现设计](docs/design/MVP实现设计_20260726.md)
 - [MVP 运行手册](docs/runbook/MVP运行手册_20260726.md)
 - [MVP 需求追踪矩阵](docs/implementation/MVP需求追踪矩阵_20260726.md)

@@ -45,6 +45,9 @@ training:
   text_dropout_probability: 0.15
   device: auto
   deterministic_algorithms: true
+  precision: fp32
+  tf32: false
+  data_backend: gpu_resident
 
 probe:
   batch_size: 512

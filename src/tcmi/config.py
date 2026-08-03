@@ -100,6 +100,14 @@ def validate_config(config: dict[str, Any]) -> None:
     batch_size = int(config["training"].get("batch_size", 0))
     if batch_size < 4 or batch_size % 2:
         raise ConfigError("training.batch_size 必须为偶数且至少为 4")
+    precision = config["training"].get("precision", "fp32")
+    if precision not in {"fp32", "bf16"}:
+        raise ConfigError(f"未知 training.precision: {precision}")
+    data_backend = config["training"].get("data_backend", "dataloader")
+    if data_backend not in {"dataloader", "gpu_resident"}:
+        raise ConfigError(f"未知 training.data_backend: {data_backend}")
+    if not isinstance(config["training"].get("tf32", False), bool):
+        raise ConfigError("training.tf32 必须为布尔值")
     heads = int(config["model"].get("attention_heads", 0))
     for field in ("image_width", "text_width"):
         width = int(config["model"].get(field, 0))

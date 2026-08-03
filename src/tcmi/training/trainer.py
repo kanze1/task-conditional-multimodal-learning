@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import random
 import traceback
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +12,11 @@ import torch
 from torch.utils.data import DataLoader
 
 from tcmi.constants import ARCHITECTURES, INFORMATION_CONDITIONS, TRAIN_MODES
-from tcmi.data.dataset import ShardedSceneGraphDataset, dataset_manifest_hash
+from tcmi.data.dataset import (
+    ResidentSceneGraphData,
+    ShardedSceneGraphDataset,
+    dataset_manifest_hash,
+)
 from tcmi.data.generator import dataset_root
 from tcmi.data.vocab import VOCABULARY
 from tcmi.evidence import RunContext, RunIdentity, enforce_evidence_gate
@@ -53,18 +59,32 @@ def train_run(
     audit = parameter_audit(model)
     write_json(context.run_dir / "parameter_audit.json", audit)
 
-    train_dataset = ShardedSceneGraphDataset(config, condition, "train")
+    configure_matmul_precision(config, device)
+    autocast_enabled = training_autocast_enabled(config, device)
+    batch_size = int(config["training"]["batch_size"])
+    data_backend = str(config["training"].get("data_backend", "dataloader"))
     loader_generator = torch.Generator()
     loader_generator.manual_seed(seed)
-    loader = DataLoader(
-        train_dataset,
-        batch_size=int(config["training"]["batch_size"]),
-        shuffle=True,
-        num_workers=int(config["training"]["num_workers"]),
-        drop_last=True,
-        generator=loader_generator,
-        persistent_workers=int(config["training"]["num_workers"]) > 0,
-    )
+    if data_backend == "gpu_resident":
+        resident = ResidentSceneGraphData(config, condition, "train", device)
+
+        def epoch_batches() -> Iterable[dict[str, Any]]:
+            return resident.training_batches(batch_size, loader_generator)
+
+    else:
+        train_dataset = ShardedSceneGraphDataset(config, condition, "train")
+        loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=int(config["training"]["num_workers"]),
+            drop_last=True,
+            generator=loader_generator,
+            persistent_workers=int(config["training"]["num_workers"]) > 0,
+        )
+
+        def epoch_batches() -> Iterable[dict[str, Any]]:
+            return loader
     optimizer = torch.optim.AdamW(
         [parameter for parameter in model.parameters() if parameter.requires_grad],
         lr=float(config["training"]["learning_rate"]),
@@ -81,12 +101,13 @@ def train_run(
         for epoch in range(1, epochs + 1):
             epoch_loss = _train_epoch(
                 model=model,
-                loader=loader,
+                batches=epoch_batches(),
                 optimizer=optimizer,
                 device=device,
                 config=config,
                 train_mode=train_mode,
                 tracker=tracker,
+                autocast_enabled=autocast_enabled,
             )
             context.log("epoch_completed", epoch=epoch, mean_loss=epoch_loss)
             _enforce_gpu_budget(
@@ -144,32 +165,38 @@ def train_run(
 
 def _train_epoch(
     model: torch.nn.Module,
-    loader: DataLoader[dict[str, Any]],
+    batches: Iterable[dict[str, Any]],
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     config: dict[str, Any],
     train_mode: str,
     tracker: BudgetTracker,
+    autocast_enabled: bool,
 ) -> float:
     model.train()
     total_loss = 0.0
     batch_count = 0
-    for batch in loader:
+    for batch in batches:
         images = batch["image"].to(device, non_blocking=True)
         input_ids = batch["input_ids"].to(device, non_blocking=True)
         attention_mask = batch["attention_mask"].to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
-        loss, image_count, text_count = _mode_loss(
-            model=model,
-            images=images,
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            train_mode=train_mode,
-            image_noise_std=float(config["training"]["image_noise_std"]),
-            text_dropout_probability=float(
-                config["training"]["text_dropout_probability"]
-            ),
-        )
+        with torch.autocast(
+            device_type=device.type,
+            dtype=torch.bfloat16,
+            enabled=autocast_enabled,
+        ):
+            loss, image_count, text_count = _mode_loss(
+                model=model,
+                images=images,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                train_mode=train_mode,
+                image_noise_std=float(config["training"]["image_noise_std"]),
+                text_dropout_probability=float(
+                    config["training"]["text_dropout_probability"]
+                ),
+            )
         loss.backward()
         optimizer.step()
         valid_text_tokens = int(attention_mask.sum().item()) * text_count
@@ -182,7 +209,7 @@ def _train_epoch(
         total_loss += float(loss.detach().cpu())
         batch_count += 1
     if batch_count == 0:
-        raise TrainingError("训练 DataLoader 没有产生 batch")
+        raise TrainingError("训练数据没有产生任何 batch")
     return total_loss / batch_count
 
 
@@ -312,7 +339,21 @@ def set_reproducibility(seed: int, deterministic_algorithms: bool) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+        if deterministic_algorithms:
+            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     torch.use_deterministic_algorithms(deterministic_algorithms, warn_only=False)
+
+
+def configure_matmul_precision(config: dict[str, Any], device: torch.device) -> None:
+    allow_tf32 = bool(config["training"].get("tf32", False))
+    if device.type == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+        torch.backends.cudnn.allow_tf32 = allow_tf32
+
+
+def training_autocast_enabled(config: dict[str, Any], device: torch.device) -> bool:
+    precision = str(config["training"].get("precision", "fp32"))
+    return precision == "bf16" and device.type == "cuda"
 
 
 def resolve_device(requested: str) -> torch.device:
