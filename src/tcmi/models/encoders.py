@@ -36,7 +36,13 @@ class TinyViTImageEncoder(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.transformer = nn.TransformerEncoder(layer, num_layers=layers)
+        self.transformer = nn.TransformerEncoder(
+            layer,
+            num_layers=layers,
+            # norm_first 使 nested tensor 路径本就不启用；显式关闭以免每次
+            # 构造模型时向 stderr 发出 UserWarning。
+            enable_nested_tensor=False,
+        )
         self.norm = nn.LayerNorm(width)
         nn.init.trunc_normal_(self.class_token, std=0.02)
         nn.init.trunc_normal_(self.position_embedding, std=0.02)
@@ -102,7 +108,13 @@ class TextTransformerEncoder(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.transformer = nn.TransformerEncoder(layer, num_layers=layers)
+        self.transformer = nn.TransformerEncoder(
+            layer,
+            num_layers=layers,
+            # norm_first 使 nested tensor 路径本就不启用；显式关闭以免每次
+            # 构造模型时向 stderr 发出 UserWarning。
+            enable_nested_tensor=False,
+        )
         self.norm = nn.LayerNorm(width)
         nn.init.normal_(self.token_embedding.weight, std=0.02)
         nn.init.trunc_normal_(self.position_embedding, std=0.02)

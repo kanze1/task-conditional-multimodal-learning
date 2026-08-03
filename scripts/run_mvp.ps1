@@ -39,11 +39,20 @@ function Invoke-ProjectPython {
     # Python warnings arrive on stderr; with a redirected error stream and
     # ErrorActionPreference=Stop, PowerShell 5.1 would turn the first stderr
     # line into a terminating error. Success/failure is gated on the exit
-    # code alone, so native stderr must stay non-terminating here.
+    # code alone, so native stderr must stay non-terminating here, and stderr
+    # lines are converted to plain strings so they are not rendered as red
+    # ErrorRecord noise in the console or the tee log.
     $previous_preference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & $python @CommandArguments
+        & $python @CommandArguments 2>&1 | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                $_.ToString()
+            }
+            else {
+                $_
+            }
+        }
         $exit_code = $LASTEXITCODE
     }
     finally {
