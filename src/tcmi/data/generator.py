@@ -52,6 +52,7 @@ def sample_graph(
     split: str,
     index: int,
     heldout_modulus: int,
+    key_correlation: float = 0.5,
 ) -> SceneGraph:
     desired_unseen = split != "train" and index % 2 == 1
     for attempt in range(10_000):
@@ -70,10 +71,47 @@ def sample_graph(
         )
         heldout = is_unseen_combination(graph, heldout_modulus)
         if split == "train" and not heldout:
-            return graph
+            return _apply_key_correlation(
+                graph, generation_seed, split, index, key_correlation
+            )
         if split != "train" and heldout == desired_unseen:
-            return graph
+            return _apply_key_correlation(
+                graph, generation_seed, split, index, key_correlation
+            )
     raise GenerationError(f"无法为 {split}:{index} 采样满足组合约束的图")
+
+
+def _apply_key_correlation(
+    graph: SceneGraph,
+    generation_seed: int,
+    split: str,
+    index: int,
+    key_correlation: float,
+) -> SceneGraph:
+    # 机制变体：以概率 key_correlation 令 text_key 与 visual_key 一致。默认 0.5
+    # 走原始独立采样路径，保证 pilot/formal 数据流逐位不变；变体使用独立派生
+    # rng，不扰动主采样流。
+    if key_correlation == 0.5:
+        return graph
+    if not 0.5 < key_correlation <= 1.0:
+        raise GenerationError(f"key_correlation 必须位于 [0.5, 1.0]: {key_correlation}")
+    agree_rng = _rng_for(generation_seed + 131, split, index)
+    agree = bool(agree_rng.random() < key_correlation)
+    text_key = graph.visual_key if agree else 1 - graph.visual_key
+    if text_key == graph.text_key:
+        return graph
+    return SceneGraph(
+        subject_shape=graph.subject_shape,
+        object_shape=graph.object_shape,
+        predicate=graph.predicate,
+        direction=graph.direction,
+        visual_key=graph.visual_key,
+        text_key=text_key,
+        layout_jitter_x=graph.layout_jitter_x,
+        layout_jitter_y=graph.layout_jitter_y,
+        template_id=graph.template_id,
+        scene_nonce=graph.scene_nonce,
+    )
 
 
 def is_unseen_combination(graph: SceneGraph, heldout_modulus: int) -> bool:
@@ -96,10 +134,20 @@ def _rng_for(seed: int, split: str, index: int, attempt: int = 0) -> np.random.G
     return np.random.default_rng(seed_sequence)
 
 
-def render_image(graph: SceneGraph, condition: str, image_size: int) -> np.ndarray:
+def render_image(
+    graph: SceneGraph,
+    condition: str,
+    image_size: int,
+    visual_key_salience: str = "patch",
+) -> np.ndarray:
     if condition not in INFORMATION_CONDITIONS:
         raise GenerationError(f"未知信息条件: {condition}")
-    canvas = np.full((3, image_size, image_size), 24, dtype=np.uint8)
+    if visual_key_salience not in {"patch", "background"}:
+        raise GenerationError(f"未知 visual_key_salience: {visual_key_salience}")
+    # 机制变体：background 模式把 visual_key 编码为整幅背景亮度（约 1000 像素的
+    # 高显著信号），同时保留角落 patch，使其为默认渲染的信息超集。
+    background = 24 if visual_key_salience == "patch" else (64 if graph.visual_key else 16)
+    canvas = np.full((3, image_size, image_size), background, dtype=np.uint8)
     center_y = image_size // 2 + graph.layout_jitter_y
     left_x = image_size // 4 + graph.layout_jitter_x
     right_x = image_size * 3 // 4 + graph.layout_jitter_x
@@ -243,6 +291,8 @@ def generate_dataset(config: dict[str, Any]) -> Path:
     shard_size = int(data_config["shard_size"])
     image_size = int(data_config["image_size"])
     preview_count = int(data_config["preview_samples_per_split"])
+    key_correlation = float(data_config.get("key_correlation", 0.5))
+    visual_key_salience = str(data_config.get("visual_key_salience", "patch"))
 
     condition_entries: dict[str, dict[str, str]] = {}
     reference_latent_digests: dict[str, str] | None = None
@@ -268,6 +318,7 @@ def generate_dataset(config: dict[str, Any]) -> Path:
                     split_size,
                     shard_size,
                     heldout_modulus,
+                    key_correlation,
                 )
             ):
                 start_index, graphs = batch
@@ -279,6 +330,7 @@ def generate_dataset(config: dict[str, Any]) -> Path:
                     generation_seed=generation_seed,
                     heldout_modulus=heldout_modulus,
                     image_size=image_size,
+                    visual_key_salience=visual_key_salience,
                 )
                 for graph in graphs:
                     latent_digest.update(
@@ -365,13 +417,20 @@ def _graph_batches(
     split_size: int,
     shard_size: int,
     heldout_modulus: int,
+    key_correlation: float = 0.5,
 ) -> Iterator[tuple[int, list[SceneGraph]]]:
     for start_index in range(0, split_size, shard_size):
         end_index = min(split_size, start_index + shard_size)
         yield (
             start_index,
             [
-                sample_graph(generation_seed, split, index, heldout_modulus)
+                sample_graph(
+                    generation_seed,
+                    split,
+                    index,
+                    heldout_modulus,
+                    key_correlation=key_correlation,
+                )
                 for index in range(start_index, end_index)
             ],
         )
@@ -385,6 +444,7 @@ def _build_shard(
     generation_seed: int,
     heldout_modulus: int,
     image_size: int,
+    visual_key_salience: str = "patch",
 ) -> dict[str, np.ndarray]:
     images = []
     input_ids = []
@@ -394,7 +454,14 @@ def _build_shard(
     sample_ids = []
     for local_index, graph in enumerate(graphs):
         global_index = start_index + local_index
-        images.append(render_image(graph, condition, image_size))
+        images.append(
+            render_image(
+                graph,
+                condition,
+                image_size,
+                visual_key_salience=visual_key_salience,
+            )
+        )
         input_ids.append(
             text_token_ids(graph, condition, split, generation_seed, global_index)
         )

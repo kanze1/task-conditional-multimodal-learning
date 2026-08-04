@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet('smoke', 'pilot')]
     [string]$Profile = 'smoke',
 
     [Parameter(Mandatory = $false)]

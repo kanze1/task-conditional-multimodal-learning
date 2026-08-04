@@ -79,6 +79,12 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("shard_size 必须为正整数")
     if int(data.get("heldout_modulus", 0)) <= 1:
         raise ConfigError("heldout_modulus 必须大于 1")
+    key_correlation = float(data.get("key_correlation", 0.5))
+    if not 0.5 <= key_correlation <= 1.0:
+        raise ConfigError("key_correlation 必须位于 [0.5, 1.0]")
+    salience = data.get("visual_key_salience", "patch")
+    if salience not in {"patch", "background"}:
+        raise ConfigError(f"未知 visual_key_salience: {salience}")
 
     matrix = config["matrix"]
     _validate_subset(matrix.get("architectures", ()), ARCHITECTURES, "architecture")

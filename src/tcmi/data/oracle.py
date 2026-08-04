@@ -18,6 +18,7 @@ from tcmi.io import read_json
 
 def run_oracle_audit(config: dict[str, Any]) -> dict[str, Any]:
     root = dataset_root(config)
+    key_correlation = float(config["data"].get("key_correlation", 0.5))
     results = []
     failures: list[str] = []
     condition_rows: dict[str, list[dict[str, Any]]] = {}
@@ -74,6 +75,7 @@ def run_oracle_audit(config: dict[str, Any]) -> dict[str, Any]:
             if row["identifiability_accuracy"] > _partial_information_ceiling(
                 task,
                 row["test_sample_count"],
+                key_correlation,
             ):
                 failures.append(
                     f"complementary 的 {modality} 单模态泄漏完整 {task} 标签"
@@ -108,12 +110,14 @@ def run_oracle_audit(config: dict[str, Any]) -> dict[str, Any]:
     for task in TASKS:
         row = lookup[("irrelevant", "text", task)]
         if row["identifiability_accuracy"] > _chance_ceiling(
-            task, row["test_sample_count"]
+            task, row["test_sample_count"], key_correlation
         ):
             failures.append(f"irrelevant 文本异常预测 {task}")
     for task in ("predicate", "direction", "joint_graph"):
         row = lookup[("conflict", "text", task)]
-        if row["test_accuracy"] > _chance_ceiling(task, row["test_sample_count"]):
+        if row["test_accuracy"] > _chance_ceiling(
+            task, row["test_sample_count"], key_correlation
+        ):
             failures.append(f"conflict test 文本未按预期翻转 {task}")
 
     return {
@@ -242,17 +246,29 @@ def _oracle_feature(
     raise ValueError(f"未知 oracle modality: {modality}")
 
 
-def _chance_ceiling(task: str, sample_count: int) -> float:
-    class_count = TASK_CLASS_COUNTS[task]
-    chance = 1 / class_count
+def _chance_ceiling(
+    task: str,
+    sample_count: int,
+    key_correlation: float = 0.5,
+) -> float:
+    # key_correlation != 0.5 时 joint_graph 边缘分布不再均匀，最大类概率为 rho/2。
+    if task == "joint_graph":
+        chance = key_correlation / 2
+    else:
+        chance = 1 / TASK_CLASS_COUNTS[task]
     standard_error = (chance * (1 - chance) / max(1, sample_count)) ** 0.5
     return min(1.0, chance + 3 * standard_error)
 
 
-def _partial_information_ceiling(task: str, sample_count: int) -> float:
+def _partial_information_ceiling(
+    task: str,
+    sample_count: int,
+    key_correlation: float = 0.5,
+) -> float:
+    # 单模态知道一个 key 时，另一 key 的最优预测准确率等于 key_correlation。
     partial_accuracy = {
         "entity": 0.25,
-        "joint_graph": 0.5,
+        "joint_graph": key_correlation,
     }[task]
     standard_error = (
         partial_accuracy * (1 - partial_accuracy) / max(1, sample_count)
