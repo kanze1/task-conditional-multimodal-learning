@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from tcmi.config import output_root, public_config, stable_hash
 from tcmi.constants import ARCHITECTURES, INFORMATION_CONDITIONS, TRAIN_MODES
 from tcmi.data.dataset import (
     ResidentSceneGraphData,
@@ -52,6 +53,21 @@ def train_run(
         seed=seed,
         evidence_level=evidence_level,
     )
+    run_dir = output_root(config) / "runs" / identity.slug
+    if run_dir.exists():
+        existing_manifest_path = run_dir / "run_manifest.json"
+        if existing_manifest_path.is_file():
+            existing = read_json(existing_manifest_path)
+            if (
+                existing.get("status") == "completed"
+                and existing.get("config_hash")
+                == stable_hash(public_config(config))
+                and existing.get("dataset_manifest_hash") == manifest_hash
+            ):
+                return run_dir
+        raise TrainingError(
+            f"run 目录已存在且未完成或配置不一致，拒绝覆盖: {run_dir}"
+        )
     context = RunContext(config, identity, manifest_hash)
     model = build_model(config, architecture)
     _configure_trainable_parameters(model, train_mode)

@@ -70,12 +70,13 @@ def extract_features(
         if corruption == "conflicting_text"
         else None
     )
+    # 特征提取是一次顺序前向；Windows spawn worker 在数百个 probe 的反复起停中
+    # 会出现句柄失效（WinError 6），因此固定单进程加载。
     loader = DataLoader(
         base_dataset,
         batch_size=int(config["probe"]["batch_size"]),
         shuffle=False,
-        num_workers=int(config["training"]["num_workers"]),
-        persistent_workers=int(config["training"]["num_workers"]) > 0,
+        num_workers=0,
     )
     generator = torch.Generator(device=device.type)
     generator.manual_seed(seed)

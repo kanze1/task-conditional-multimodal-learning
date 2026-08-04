@@ -83,7 +83,18 @@ def run_probes(
     directory = Path(run_dir)
     output_dir = directory / "probes" / representation_scope
     if output_dir.exists():
-        raise ProbeError(f"probe 输出已存在，拒绝覆盖: {output_dir}")
+        manifest_path = output_dir / "probe_run_manifest.json"
+        if manifest_path.is_file():
+            existing = read_json(manifest_path)
+            if (
+                existing.get("status") == "completed"
+                and existing.get("config_hash")
+                == stable_hash(public_config(config))
+            ):
+                return output_dir / existing["metrics_path"]
+        raise ProbeError(
+            f"probe 输出已存在且未完成或配置不一致，拒绝覆盖: {output_dir}"
+        )
     provenance = _probe_provenance(config, directory, representation_scope)
     output_dir.mkdir(parents=True)
     device = resolve_device(str(config["training"]["device"]))

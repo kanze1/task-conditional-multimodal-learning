@@ -10,8 +10,9 @@ from tcmi.config import ConfigError, public_config, stable_hash, validate_config
 from tcmi.data.audit import audit_dataset
 from tcmi.data.dataset import ResidentSceneGraphData, ShardedSceneGraphDataset
 from tcmi.data.generator import generate_dataset
+from tcmi.evaluation.probe import ProbeError, run_probes
 from tcmi.io import read_json
-from tcmi.training.trainer import train_run
+from tcmi.training.trainer import TrainingError, train_run
 
 
 @pytest.fixture
@@ -96,6 +97,80 @@ def test_train_run_with_gpu_resident_backend_on_cpu(
     )
     manifest = read_json(run_dir / "run_manifest.json")
     assert manifest["status"] == "completed"
+
+
+def test_train_run_skips_completed_and_rejects_partial(
+    generated_tiny_config: dict,
+) -> None:
+    config = generated_tiny_config
+    config["training"]["data_backend"] = "gpu_resident"
+    config["_meta"]["config_hash"] = stable_hash(public_config(config))
+    identity = {
+        "architecture": "tiny_cnn",
+        "train_mode": "multimodal_aligned",
+        "condition": "redundant",
+        "seed": 2601,
+    }
+    first = train_run(config, **identity)
+    resumed = train_run(config, **identity)
+    assert resumed == first
+
+    partial = (
+        first.parent / "smoke__tiny_cnn__multimodal_aligned__irrelevant__seed_2601"
+    )
+    partial.mkdir()
+    with pytest.raises(TrainingError, match="拒绝覆盖"):
+        train_run(
+            config,
+            architecture="tiny_cnn",
+            train_mode="multimodal_aligned",
+            condition="irrelevant",
+            seed=2601,
+        )
+
+
+def test_run_probes_skips_completed_and_rejects_partial(
+    generated_tiny_config: dict,
+    monkeypatch,
+) -> None:
+    import tcmi.evaluation.probe as probe_module
+
+    monkeypatch.setattr(
+        probe_module,
+        "source_snapshot",
+        lambda root: {
+            "git_commit": "test-commit",
+            "dirty": False,
+            "dirty_paths": [],
+        },
+    )
+    config = generated_tiny_config
+    config["training"]["data_backend"] = "gpu_resident"
+    config["probe"]["epochs"] = 1
+    config["probe"]["bootstrap_samples"] = 10
+    config["_meta"]["config_hash"] = stable_hash(public_config(config))
+    run_dir = train_run(
+        config,
+        architecture="tiny_cnn",
+        train_mode="multimodal_aligned",
+        condition="redundant",
+        seed=2601,
+    )
+    first = run_probes(config, run_dir, "image")
+    resumed = run_probes(config, run_dir, "image")
+    assert resumed == first
+
+    partial_manifest = read_json(
+        run_dir / "probes" / "image" / "probe_run_manifest.json"
+    )
+    partial_manifest["status"] = "failed"
+    from tcmi.io import write_json
+
+    write_json(
+        run_dir / "probes" / "image" / "probe_run_manifest.json", partial_manifest
+    )
+    with pytest.raises(ProbeError, match="拒绝覆盖"):
+        run_probes(config, run_dir, "image")
 
 
 def test_config_rejects_unknown_precision_and_backend(smoke_config: dict) -> None:
